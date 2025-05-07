@@ -55,7 +55,9 @@ public final class AsyncAnticheatService {
         // Avoid blocking the server/main thread on HTTP I/O during plugin disable.
         // Best effort: kick a final flush/upload on a daemon thread.
         try {
-            new Thread(this::flushAndUploadSafe, "AsyncAnticheat-Uploader-Stop").start();
+            final Thread t = new Thread(this::flushAndUploadSafe, "AsyncAnticheat-Uploader-Stop");
+            t.setDaemon(true);
+            t.start();
         } catch (Exception ignored) {}
         try {
             executor.shutdownNow();
