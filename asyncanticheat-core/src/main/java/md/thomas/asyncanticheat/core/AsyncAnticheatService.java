@@ -12,6 +12,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Platform-agnostic core service: buffer packet records, spool to disk, and upload batches asynchronously.
@@ -33,6 +34,8 @@ public final class AsyncAnticheatService {
         t.setDaemon(true);
         return t;
     });
+    // Ensure flush/upload is single-flight: stop() and scheduled task must never overlap.
+    private final AtomicBoolean flushRunning = new AtomicBoolean(false);
 
     private final Gson gson = new GsonBuilder().disableHtmlEscaping().create();
     private final DiskSpool spool;
@@ -97,10 +100,16 @@ public final class AsyncAnticheatService {
     }
 
     private void flushAndUploadSafe() {
+        // Prevent overlapping flushes (scheduled vs stop-triggered).
+        if (!flushRunning.compareAndSet(false, true)) {
+            return;
+        }
         try {
             flushAndUpload();
         } catch (Throwable t) {
             logger.error("[AsyncAnticheat] Background flush/upload failed", t);
+        } finally {
+            flushRunning.set(false);
         }
     }
 
