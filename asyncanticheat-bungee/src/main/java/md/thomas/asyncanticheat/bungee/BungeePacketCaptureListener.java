@@ -36,6 +36,11 @@ final class BungeePacketCaptureListener implements PacketListener {
         final User user = event.getUser();
         final ProxiedPlayer player = user == null ? null : proxy.getPlayer(user.getUUID());
         
+        // If we can't resolve a player, drop the packet. Enqueuing null UUID/name creates unusable anonymous traffic.
+        if (user == null || player == null) {
+            return;
+        }
+        
         // Check exemptions (Bedrock, join grace, server switch grace)
         if (exemptionTracker.isExempt(player)) {
             return;
@@ -46,8 +51,8 @@ final class BungeePacketCaptureListener implements PacketListener {
                 System.currentTimeMillis(),
                 "serverbound",
                 String.valueOf(event.getPacketType()),
-                player == null ? null : player.getUniqueId().toString(),
-                player == null ? null : player.getName(),
+                player.getUniqueId().toString(),
+                player.getName(),
                 fields
         ));
     }
@@ -56,6 +61,11 @@ final class BungeePacketCaptureListener implements PacketListener {
     public void onPacketSend(PacketSendEvent event) {
         final User user = event.getUser();
         final ProxiedPlayer player = user == null ? null : proxy.getPlayer(user.getUUID());
+        
+        // If we can't resolve a player, drop the packet. Enqueuing null UUID/name creates unusable anonymous traffic.
+        if (user == null || player == null) {
+            return;
+        }
         
         // Check exemptions (same as serverbound)
         if (exemptionTracker.isExempt(player)) {
@@ -66,8 +76,8 @@ final class BungeePacketCaptureListener implements PacketListener {
                 System.currentTimeMillis(),
                 "clientbound",
                 String.valueOf(event.getPacketType()),
-                player == null ? null : player.getUniqueId().toString(),
-                player == null ? null : player.getName(),
+                player.getUniqueId().toString(),
+                player.getName(),
                 Collections.emptyMap()
         ));
     }

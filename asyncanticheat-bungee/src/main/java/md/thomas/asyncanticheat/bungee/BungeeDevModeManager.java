@@ -70,7 +70,7 @@ final class BungeeDevModeManager {
             if (p != null) {
                 stop(p, reason);
             } else {
-                sessions.remove(id);
+                stopSilent(id);
             }
         }
     }
@@ -85,7 +85,8 @@ final class BungeeDevModeManager {
         if (s == null) return;
         final ProxiedPlayer player = proxy.getPlayer(playerId);
         if (player == null) {
-            sessions.remove(playerId);
+            // Player disconnected: cancel repeating task and remove session without emitting markers/messages.
+            stopSilent(playerId);
             return;
         }
 
@@ -117,6 +118,14 @@ final class BungeeDevModeManager {
             enqueueMarker(player, s.devSessionId, s.label, "toggle", "off", Map.of("cycle", s.cycleIndex));
         }
         s.nextToggleAt = s.elapsedSeconds + s.toggleSeconds;
+    }
+
+    void stopSilent(@NotNull UUID playerId) {
+        final Session s = sessions.remove(playerId);
+        if (s == null) return;
+        if (s.task != null) {
+            s.task.cancel();
+        }
     }
 
     private void enqueueMarker(
