@@ -1,0 +1,124 @@
+package md.thomas.asyncanticheat.core;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import org.jetbrains.annotations.NotNull;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * Platform-agnostic core service: buffer packet records, spool to disk, and upload batches asynchronously.
+ *
+ * Platform adapters feed packet events via {@link #tryEnqueue(PacketRecord)}.
+ */
+public final class AsyncAnticheatService {
+
+    private static final int DEFAULT_QUEUE_CAPACITY = 10_000;
+
+    private final AcLogger logger;
+    private final AsyncAnticheatConfig config;
+    private final ServerIdentity serverIdentity;
+    private final String sessionId = UUID.randomUUID().toString();
+
+    private final ArrayBlockingQueue<PacketRecord> queue = new ArrayBlockingQueue<>(DEFAULT_QUEUE_CAPACITY);
+    private final ScheduledExecutorService executor = new ScheduledThreadPoolExecutor(1, r -> {
+        Thread t = new Thread(r, "AsyncAnticheat-Uploader");
+        t.setDaemon(true);
+        return t;
+    });
+
+    private final Gson gson = new GsonBuilder().disableHtmlEscaping().create();
+    private final DiskSpool spool;
+    private final HttpUploader uploader;
+
+    public AsyncAnticheatService(@NotNull File dataFolder, @NotNull AcLogger logger) {
+        this.logger = logger;
+        this.config = AsyncAnticheatConfig.load(dataFolder, logger);
+        this.serverIdentity = ServerIdentity.loadOrCreate(dataFolder, logger);
+        this.spool = new DiskSpool(new File(dataFolder, config.getSpoolDirName()), config, logger, gson);
+        this.uploader = new HttpUploader(config, logger, serverIdentity.getServerId(), sessionId);
+    }
+
+    public void start() {
+        executor.scheduleWithFixedDelay(this::flushAndUploadSafe, config.getFlushIntervalMs(), config.getFlushIntervalMs(), TimeUnit.MILLISECONDS);
+        logger.info("[AsyncAnticheat] Started. server_id=" + serverIdentity.getServerId() + " session_id=" + sessionId);
+    }
+
+    public void stop() {
+        try {
+            executor.shutdownNow();
+        } catch (Exception ignored) {}
+        flushAndUploadSafe();
+        logger.info("[AsyncAnticheat] Stopped.");
+    }
+
+    public boolean tryEnqueue(@NotNull PacketRecord record) {
+        // Dev mode markers must never be dropped due to sampling/filtering, otherwise labels become useless.
+        if (isDevMarker(record)) {
+            return offerWithDropPolicy(record);
+        }
+        if (Math.random() > config.getSampleRate()) {
+            return true;
+        }
+        if (!PacketFilters.shouldCapture(config, record.getPacketName())) {
+            return true;
+        }
+        return offerWithDropPolicy(record);
+    }
+
+    private boolean isDevMarker(@NotNull PacketRecord record) {
+        final String pkt = record.getPacketName();
+        return pkt != null && pkt.startsWith("DEV_");
+    }
+
+    private boolean offerWithDropPolicy(@NotNull PacketRecord record) {
+        if (queue.offer(record)) {
+            return true;
+        }
+        // Queue full: apply drop policy.
+        if ("drop_oldest".equalsIgnoreCase(config.getDropPolicy())) {
+            queue.poll();
+            return queue.offer(record);
+        }
+        return false; // drop_newest
+    }
+
+    private void flushAndUploadSafe() {
+        try {
+            flushAndUpload();
+        } catch (Throwable t) {
+            logger.error("[AsyncAnticheat] Background flush/upload failed", t);
+        }
+    }
+
+    private void flushAndUpload() {
+        // First: upload already spooled files (oldest first).
+        uploader.uploadSpoolDir(spool.getSpoolDir());
+
+        // Then: drain queue and spool + attempt upload (best effort).
+        final List<PacketRecord> drained = new ArrayList<>(Math.min(queue.size(), 2048));
+        queue.drainTo(drained, 2048);
+        if (drained.isEmpty()) {
+            return;
+        }
+
+        final File batchFile = spool.writeBatch(drained, serverIdentity.getServerId(), sessionId);
+        if (batchFile != null) {
+            uploader.uploadFile(batchFile);
+        }
+    }
+
+    @NotNull
+    public AsyncAnticheatConfig getConfig() {
+        return config;
+    }
+}
+
+

@@ -1,0 +1,83 @@
+package md.thomas.asyncanticheat.bukkit;
+
+import com.github.retrooper.packetevents.PacketEvents;
+import com.github.retrooper.packetevents.event.PacketListenerPriority;
+import io.github.retrooper.packetevents.factory.spigot.SpigotPacketEventsBuilder;
+import md.thomas.asyncanticheat.core.AcLogger;
+import md.thomas.asyncanticheat.core.AsyncAnticheatService;
+import org.bukkit.command.PluginCommand;
+import org.bukkit.plugin.java.JavaPlugin;
+import org.jetbrains.annotations.NotNull;
+
+public final class AsyncAnticheatBukkitPlugin extends JavaPlugin {
+
+    private AsyncAnticheatService service;
+    private BukkitDevModeManager devMode;
+    private BukkitPlayerExemptionTracker exemptionTracker;
+
+    @Override
+    public void onEnable() {
+        final AcLogger logger = new BukkitLogger(getLogger());
+        service = new AsyncAnticheatService(getDataFolder(), logger);
+        
+        // Initialize exemption tracker with config
+        // Tracks player states like creative mode, flying, dead, etc. based on NCP patterns
+        exemptionTracker = new BukkitPlayerExemptionTracker(service.getConfig().getExemptionConfig());
+        getServer().getPluginManager().registerEvents(exemptionTracker, this);
+        
+        try {
+            PacketEvents.setAPI(SpigotPacketEventsBuilder.build(this));
+            PacketEvents.getAPI().load();
+            PacketEvents.getAPI().init();
+        } catch (Throwable t) {
+            logger.error("[AsyncAnticheat] Failed to initialize PacketEvents (Bukkit).", t);
+        }
+
+        PacketEvents.getAPI().getEventManager().registerListener(
+                new BukkitPacketCaptureListener(service, exemptionTracker),
+                PacketListenerPriority.LOW
+        );
+
+        devMode = new BukkitDevModeManager(this, service);
+        final PluginCommand cmd = getCommand("aacdev");
+        if (cmd != null) {
+            final BukkitDevModeCommand executor = new BukkitDevModeCommand(devMode, service);
+            cmd.setExecutor(executor);
+            cmd.setTabCompleter(executor);
+        }
+
+        service.start();
+        logger.info("[AsyncAnticheat] Player exemption tracking enabled (NCP-style)");
+    }
+
+    @Override
+    public void onDisable() {
+        try {
+            PacketEvents.getAPI().terminate();
+        } catch (Throwable ignored) {}
+        if (exemptionTracker != null) {
+            exemptionTracker.cleanup();
+            exemptionTracker = null;
+        }
+        if (service != null) {
+            service.stop();
+            service = null;
+        }
+        if (devMode != null) {
+            devMode.stopAll("plugin_disable");
+            devMode = null;
+        }
+    }
+
+    @NotNull
+    public AsyncAnticheatService getService() {
+        return service;
+    }
+    
+    @NotNull
+    public BukkitPlayerExemptionTracker getExemptionTracker() {
+        return exemptionTracker;
+    }
+}
+
+
