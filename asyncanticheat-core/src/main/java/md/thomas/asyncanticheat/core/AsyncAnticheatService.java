@@ -15,16 +15,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Platform-agnostic core service: buffer packet records, spool to disk, and upload batches asynchronously.
+ * Platform-agnostic core service: buffer packet records, spool to disk, and
+ * upload batches asynchronously.
  *
  * Platform adapters feed packet events via {@link #tryEnqueue(PacketRecord)}.
  */
 public final class AsyncAnticheatService {
 
     private static final int DEFAULT_QUEUE_CAPACITY = 10_000;
-    // Keep a lightweight heartbeat so the dashboard can show the plugin as "online"
-    // even when there are no players/packets to upload.
-    private static final long HEARTBEAT_INTERVAL_MS = 15_000L;
 
     private final AcLogger logger;
     private final AsyncAnticheatConfig config;
@@ -37,9 +35,9 @@ public final class AsyncAnticheatService {
         t.setDaemon(true);
         return t;
     });
-    // Ensure flush/upload is single-flight: stop() and scheduled task must never overlap.
+    // Ensure flush/upload is single-flight: stop() and scheduled task must never
+    // overlap.
     private final AtomicBoolean flushRunning = new AtomicBoolean(false);
-    private long lastHeartbeatAtMs = 0L;
 
     private final Gson gson = new GsonBuilder().disableHtmlEscaping().create();
     private final DiskSpool spool;
@@ -54,14 +52,17 @@ public final class AsyncAnticheatService {
     }
 
     public void start() {
-        executor.scheduleWithFixedDelay(this::flushAndUploadSafe, config.getFlushIntervalMs(), config.getFlushIntervalMs(), TimeUnit.MILLISECONDS);
+        executor.scheduleWithFixedDelay(this::flushAndUploadSafe, config.getFlushIntervalMs(),
+                config.getFlushIntervalMs(), TimeUnit.MILLISECONDS);
         logger.info("[AsyncAnticheat] Started. server_id=" + serverIdentity.getServerId() + " session_id=" + sessionId);
 
-        // Fire a startup handshake so the API can respond "waiting_for_registration" immediately.
+        // Fire a startup handshake so the API can respond "waiting_for_registration"
+        // immediately.
         // Runs on the uploader executor to avoid blocking the server thread.
         try {
             executor.execute(uploader::handshake);
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
 
         // Always print the claim URL on startup for first-time installs.
         // This is the primary "copy/paste" flow for linking a server to the dashboard.
@@ -75,15 +76,18 @@ public final class AsyncAnticheatService {
             final Thread t = new Thread(this::flushAndUploadSafe, "AsyncAnticheat-Uploader-Stop");
             t.setDaemon(true);
             t.start();
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
         try {
             executor.shutdownNow();
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
         logger.info("[AsyncAnticheat] Stopped.");
     }
 
     public boolean tryEnqueue(@NotNull PacketRecord record) {
-        // Dev mode markers must never be dropped due to sampling/filtering, otherwise labels become useless.
+        // Dev mode markers must never be dropped due to sampling/filtering, otherwise
+        // labels become useless.
         if (isDevMarker(record)) {
             return offerWithDropPolicy(record);
         }
@@ -131,10 +135,6 @@ public final class AsyncAnticheatService {
         // First: upload already spooled files (oldest first).
         uploader.uploadSpoolDir(spool.getSpoolDir());
 
-        // Heartbeat: keep last_seen_at fresh even when idle.
-        // Runs on the uploader executor (already a daemon thread).
-        maybeHeartbeat();
-
         // Then: drain queue and spool + attempt upload (best effort).
         final List<PacketRecord> drained = new ArrayList<>(Math.min(queue.size(), 2048));
         queue.drainTo(drained, 2048);
@@ -148,18 +148,6 @@ public final class AsyncAnticheatService {
         }
     }
 
-    private void maybeHeartbeat() {
-        final long now = System.currentTimeMillis();
-        if (now - lastHeartbeatAtMs < HEARTBEAT_INTERVAL_MS) {
-            return;
-        }
-        lastHeartbeatAtMs = now;
-        try {
-            uploader.handshake();
-        } catch (Exception ignored) {
-        }
-    }
-
     @NotNull
     public AsyncAnticheatConfig getConfig() {
         return config;
@@ -167,7 +155,8 @@ public final class AsyncAnticheatService {
 
     /**
      * URL that links this server to the dashboard account.
-     * Contains the server's secret token in the query string; treat it like a password.
+     * Contains the server's secret token in the query string; treat it like a
+     * password.
      */
     @NotNull
     public String getClaimUrl() {
@@ -182,5 +171,3 @@ public final class AsyncAnticheatService {
         return uploader.getRegistrationState() == HttpUploader.REG_WAITING;
     }
 }
-
-
