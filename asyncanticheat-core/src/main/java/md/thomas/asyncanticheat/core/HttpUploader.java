@@ -29,7 +29,8 @@ final class HttpUploader {
 
     private final AtomicInteger registrationState = new AtomicInteger(REG_UNKNOWN);
 
-    // Backoff / degraded-mode state (single-threaded: used only by AsyncAnticheatService's executor)
+    // Backoff / degraded-mode state (single-threaded: used only by
+    // AsyncAnticheatService's executor)
     private long nextAttemptAtMs = 0L;
     private long backoffMs = 1_000L;
     private final long maxBackoffMs = 60_000L;
@@ -40,7 +41,8 @@ final class HttpUploader {
     private long lastRegistrationWarnAtMs = 0L;
     private final long registrationWarnIntervalMs = 5 * 60_000L; // 5 minutes
 
-    HttpUploader(@NotNull AsyncAnticheatConfig config, @NotNull AcLogger logger, @NotNull String serverId, @NotNull String sessionId) {
+    HttpUploader(@NotNull AsyncAnticheatConfig config, @NotNull AcLogger logger, @NotNull String serverId,
+            @NotNull String sessionId) {
         this.config = config;
         this.logger = logger;
         this.serverId = serverId;
@@ -91,7 +93,8 @@ final class HttpUploader {
             return;
         }
         final File[] files = spoolDir.listFiles((dir, name) -> name.endsWith(".ndjson.gz"));
-        if (files == null || files.length == 0) return;
+        if (files == null || files.length == 0)
+            return;
         Arrays.sort(files, Comparator.comparingLong(File::lastModified));
         // Upload up to a small number per tick to avoid long stalls.
         int limit = Math.min(files.length, 10);
@@ -112,7 +115,8 @@ final class HttpUploader {
             final long now = System.currentTimeMillis();
             if (now - lastMissingTokenWarnAtMs >= missingTokenWarnIntervalMs) {
                 lastMissingTokenWarnAtMs = now;
-                logger.warn("[AsyncAnticheat] api.token is not set; spooling packets to disk but not uploading. Set api.token in config.yml to enable uploads.");
+                logger.warn(
+                        "[AsyncAnticheat] api.token is not set; spooling packets to disk but not uploading. Set api.token in config.yml to enable uploads.");
             }
             return;
         }
@@ -164,25 +168,30 @@ final class HttpUploader {
     @NotNull
     private static String normalizeBaseUrl(@NotNull String baseUrl) {
         String b = baseUrl.trim();
-        while (b.endsWith("/")) b = b.substring(0, b.length() - 1);
+        while (b.endsWith("/"))
+            b = b.substring(0, b.length() - 1);
         return b;
     }
 
     /**
-     * @return true if the response indicates "waiting_for_registration" and we handled it.
+     * @return true if the response indicates "waiting_for_registration" and we
+     *         handled it.
      */
     private boolean handleRegistrationStatus(int statusCode, String body) {
         // The API returns 409 with a JSON body containing waiting_for_registration.
-        if (statusCode != 409) return false;
+        if (statusCode != 409)
+            return false;
         final String b = body == null ? "" : body;
-        if (!b.contains("waiting_for_registration")) return false;
+        if (!b.contains("waiting_for_registration"))
+            return false;
 
         registrationState.set(REG_WAITING);
 
         final long now = System.currentTimeMillis();
         if (now - lastRegistrationWarnAtMs >= registrationWarnIntervalMs) {
             lastRegistrationWarnAtMs = now;
-            logger.warn("[AsyncAnticheat] Server is waiting for dashboard registration. Link it here: " + getClaimUrl());
+            logger.warn(
+                    "[AsyncAnticheat] Server is waiting for dashboard registration. Link it here: " + getClaimUrl());
         }
         return true;
     }
@@ -204,12 +213,12 @@ final class HttpUploader {
         // Degraded mode: stop uploading for a while after repeated failures.
         if (consecutiveFailures >= 5) {
             degradedUntilMs = System.currentTimeMillis() + 5 * 60_000L; // 5 minutes
-            logger.warn("[AsyncAnticheat] Entering spool-only mode for 5m after repeated upload failures. Last: " + reason);
+            logger.warn(
+                    "[AsyncAnticheat] Entering spool-only mode for 5m after repeated upload failures. Last: " + reason);
         } else if (consecutiveFailures == 1 || consecutiveFailures == 3) {
             // Avoid log spam; log early signals.
-            logger.warn("[AsyncAnticheat] " + reason + " (backoff=" + appliedBackoffMs + "ms, failures=" + consecutiveFailures + ")");
+            logger.warn("[AsyncAnticheat] " + reason + " (backoff=" + appliedBackoffMs + "ms, failures="
+                    + consecutiveFailures + ")");
         }
     }
 }
-
-
