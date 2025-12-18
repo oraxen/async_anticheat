@@ -2,9 +2,7 @@
 
 Multi-platform Minecraft plugin (Paper/Spigot, BungeeCord, Velocity) that captures high-signal packets via PacketEvents and streams them to a cloud service for async analysis.
 
-This project is **GPL-3.0** (required for PacketEvents compatibility).
-
-Packet capture is implemented with [PacketEvents](https://docs.packetevents.com/). The plugin requires the PacketEvents plugin to be installed on each platform.
+Packet capture is implemented with [PacketEvents](https://docs.packetevents.com/), which is shaded into the plugin JAR (no separate installation required).
 
 ## Requirements
 
@@ -13,7 +11,7 @@ Packet capture is implemented with [PacketEvents](https://docs.packetevents.com/
 ## Modules
 
 ```text
-async_anticheat/
+asyncanticheat/
 ├── asyncanticheat-core/     # Shared logic (config, spooling, uploader, models)
 ├── asyncanticheat-bukkit/   # Paper/Spigot plugin entrypoint
 ├── asyncanticheat-bungee/   # BungeeCord plugin entrypoint
@@ -23,7 +21,7 @@ async_anticheat/
 ## Build
 
 ```bash
-cd async_anticheat
+cd asyncanticheat
 ./gradlew build
 ```
 
@@ -69,7 +67,7 @@ privacy:
 
 ## Data flow
 
-- Packet capture is implemented with PacketEvents **shaded into the jar**, so no separate PacketEvents plugin is required.
+- PacketEvents is shaded into the jar, so no separate PacketEvents plugin is required.
 - Packets are buffered in memory, written to gzipped NDJSON batch files under `spool/`, then uploaded to `async_anticheat_api`.
 - If the API is unreachable, the plugin enters a **spool-only** mode (temporary) and retries later with exponential backoff.
 
