@@ -10,6 +10,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
 import org.jetbrains.annotations.NotNull;
 
 public final class AsyncAnticheatBukkitPlugin extends JavaPlugin {
@@ -17,6 +18,7 @@ public final class AsyncAnticheatBukkitPlugin extends JavaPlugin {
     private AsyncAnticheatService service;
     private BukkitDevModeManager devMode;
     private BukkitPlayerExemptionTracker exemptionTracker;
+    private BukkitTask stateTask;
     private boolean packetEventsInitialized = false;
 
     @Override
@@ -79,6 +81,16 @@ public final class AsyncAnticheatBukkitPlugin extends JavaPlugin {
 
         service.start();
         logger.info("[AsyncAnticheat] Player exemption tracking enabled (NCP-style)");
+
+        // Schedule periodic player state snapshots (every 10 ticks = 0.5s)
+        // These synthetic packets provide context (swimming, climbing, etc.) to modules
+        stateTask = getServer().getScheduler().runTaskTimer(
+                this,
+                new PlayerStateTask(service),
+                20L,  // Initial delay: 1 second (let players fully load)
+                10L   // Period: 10 ticks (0.5 seconds)
+        );
+        logger.info("[AsyncAnticheat] Player state tracking enabled (10-tick interval)");
     }
 
     @Override
@@ -91,6 +103,11 @@ public final class AsyncAnticheatBukkitPlugin extends JavaPlugin {
         if (exemptionTracker != null) {
             exemptionTracker.cleanup();
             exemptionTracker = null;
+        }
+        // Cancel the player state task
+        if (stateTask != null) {
+            stateTask.cancel();
+            stateTask = null;
         }
         // IMPORTANT: devMode.stopAll() enqueues DEV_MARKER stop events via service.tryEnqueue(...).
         // service.stop() triggers a best-effort final flush/upload on a daemon thread.

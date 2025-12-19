@@ -16,6 +16,11 @@ final class DefaultPacketAllowList {
     static boolean matches(@NotNull String packetTypeString) {
         final String s = packetTypeString.toUpperCase(Locale.ROOT);
 
+        // Synthetic packets (always allow)
+        if (s.equals("PLAYER_STATE")) {
+            return true;
+        }
+
         // Movement / sync
         if (containsAny(s,
                 "POSITION",
