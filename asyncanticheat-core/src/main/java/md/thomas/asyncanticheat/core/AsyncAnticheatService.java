@@ -2,11 +2,17 @@ package md.thomas.asyncanticheat.core;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.TypeAdapter;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonToken;
+import com.google.gson.stream.JsonWriter;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
@@ -39,7 +45,49 @@ public final class AsyncAnticheatService {
     // overlap.
     private final AtomicBoolean flushRunning = new AtomicBoolean(false);
 
-    private final Gson gson = new GsonBuilder().disableHtmlEscaping().create();
+    private final Gson gson = new GsonBuilder()
+            .disableHtmlEscaping()
+            .registerTypeAdapter(Optional.class, new OptionalTypeAdapter())
+            .create();
+
+    /**
+     * TypeAdapter for java.util.Optional to avoid reflection issues on Java 9+.
+     * Serializes Optional.empty() as null, Optional.of(x) as x.
+     */
+    @SuppressWarnings("rawtypes")
+    private static class OptionalTypeAdapter extends TypeAdapter<Optional> {
+        @Override
+        public void write(JsonWriter out, Optional value) throws IOException {
+            if (value == null || value.isEmpty()) {
+                out.nullValue();
+            } else {
+                // Write the contained value directly (Gson will handle it)
+                Object inner = value.get();
+                if (inner == null) {
+                    out.nullValue();
+                } else if (inner instanceof String s) {
+                    out.value(s);
+                } else if (inner instanceof Number n) {
+                    out.value(n);
+                } else if (inner instanceof Boolean b) {
+                    out.value(b);
+                } else {
+                    // Fallback: convert to string
+                    out.value(inner.toString());
+                }
+            }
+        }
+
+        @Override
+        public Optional read(JsonReader in) throws IOException {
+            if (in.peek() == JsonToken.NULL) {
+                in.nextNull();
+                return Optional.empty();
+            }
+            // Read as string for simplicity
+            return Optional.of(in.nextString());
+        }
+    }
     private final DiskSpool spool;
     private final HttpUploader uploader;
 
@@ -169,5 +217,13 @@ public final class AsyncAnticheatService {
 
     public boolean isWaitingForDashboardRegistration() {
         return uploader.getRegistrationState() == HttpUploader.REG_WAITING;
+    }
+
+    /**
+     * Returns the unique server ID used for API authentication.
+     */
+    @NotNull
+    public String getServerId() {
+        return serverIdentity.getServerId();
     }
 }

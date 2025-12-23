@@ -15,7 +15,7 @@ import org.jetbrains.annotations.NotNull;
 public final class AsyncAnticheatBukkitPlugin extends JavaPlugin {
 
     private AsyncAnticheatService service;
-    private BukkitDevModeManager devMode;
+    private RecordingManager recordingManager;
     private BukkitPlayerExemptionTracker exemptionTracker;
     private SchedulerUtil.ScheduledTask stateTask;
     private boolean packetEventsInitialized = false;
@@ -56,26 +56,25 @@ public final class AsyncAnticheatBukkitPlugin extends JavaPlugin {
             }
         }
 
-        devMode = new BukkitDevModeManager(this, service);
-        // Ensure dev sessions are stopped immediately on logout (no orphaned repeating tasks)
+        // Initialize recording manager for in-game cheat recording
+        recordingManager = new RecordingManager(this, service.getConfig(), service.getServerId());
+        
+        // Ensure recordings are stopped immediately on logout
         getServer().getPluginManager().registerEvents(new Listener() {
             @EventHandler
             public void onQuit(PlayerQuitEvent event) {
-                if (devMode != null) {
-                    devMode.stopSilent(event.getPlayer().getUniqueId());
+                if (recordingManager != null) {
+                    recordingManager.handlePlayerQuit(event.getPlayer().getUniqueId());
                 }
             }
         }, this);
-        final PluginCommand cmd = getCommand("aacdev");
-        if (cmd != null) {
-            final BukkitDevModeCommand executor = new BukkitDevModeCommand(devMode, service);
-            cmd.setExecutor(executor);
-            cmd.setTabCompleter(executor);
-        }
 
-        final PluginCommand linkCmd = getCommand("aac");
-        if (linkCmd != null) {
-            linkCmd.setExecutor(new BukkitLinkCommand(service));
+        // Register main /aac command with subcommands
+        final PluginCommand aacCmd = getCommand("aac");
+        if (aacCmd != null) {
+            final BukkitMainCommand mainCmd = new BukkitMainCommand(service, recordingManager);
+            aacCmd.setExecutor(mainCmd);
+            aacCmd.setTabCompleter(mainCmd);
         }
 
         service.start();
@@ -113,12 +112,10 @@ public final class AsyncAnticheatBukkitPlugin extends JavaPlugin {
             stateTask.cancel();
             stateTask = null;
         }
-        // IMPORTANT: devMode.stopAll() enqueues DEV_MARKER stop events via service.tryEnqueue(...).
-        // service.stop() triggers a best-effort final flush/upload on a daemon thread.
-        // Therefore, stopAll MUST run before stop() so stop markers are included in the final upload.
-        if (devMode != null) {
-            devMode.stopAll("plugin_disable");
-            devMode = null;
+        // Stop all active recordings and submit them
+        if (recordingManager != null) {
+            recordingManager.stopAll();
+            recordingManager = null;
         }
         if (service != null) {
             service.stop();
